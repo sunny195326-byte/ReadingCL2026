@@ -136,6 +136,7 @@
   .grade-card:nth-child(5) .grade-icon { background: #E8EAF6; }
   .grade-card:nth-child(6) .grade-icon { background: #FFF3E0; }
   .grade-card:nth-child(7) .grade-icon { background: #E1F5FE; }
+  .grade-card:nth-child(8) .grade-icon { background: #F3E5F5; }
   .grade-info h3 { font-family: 'Noto Serif SC', serif; font-size: 1.15rem; font-weight: 700; }
   .grade-info p { font-size: 0.82rem; color: #7A6D5E; margin-top: 0.2rem; }
   .grade-count {
@@ -437,6 +438,11 @@
         <div class="grade-info"><h3>华语动画</h3><p>经典华语动画，寓教于乐</p></div>
         <span class="grade-count" id="count-7"></span>
       </div>
+      <div class="grade-card" onclick="showGrade(8)">
+        <div class="grade-icon">🎵</div>
+        <div class="grade-info"><h3>华语歌曲</h3><p>经典华语儿歌，边唱边学</p></div>
+        <span class="grade-count" id="count-8"></span>
+      </div>
     </div>
   </div>
 </div>
@@ -669,9 +675,10 @@ const books = [
   { n:92, title:"米小圈动画汉字", en:"Mi Xiaoquan Animated Characters", author:"北猫", channel:"Clipwise", age:"全年龄", vid:"https://www.youtube-nocookie.com/embed/sFe8prtMLao", note:"趣味动画学汉字，让识字变得生动有趣。", grade:7 },
   { n:93, title:"大头儿子，小头爸爸", en:"Big Head Son, Small Head Dad", author:"郑春华", channel:"YouTube动画频道", age:"全年龄", vid:"https://www.youtube-nocookie.com/embed/videoseries?list=PLsw2iU9xmpfZ8UivWNS0mH98OSFsgWBAo", note:"经典华语动画，大头儿子和小头爸爸的温馨日常。", grade:7 },
   { n:94, title:"倒霉先生", en:"Mr. Unlucky", author:"华语动画", channel:"YouTube动画频道", age:"全年龄", vid:"https://www.youtube-nocookie.com/embed/videoseries?list=PL3tooT_GdB5F3ZaVtUWz61UgrU5KGQrmT", note:"倒霉先生的搞笑日常，寓教于乐的趣味动画。", grade:7 },
+  // ===== 华语歌曲 (Grade 8) =====
 ];
 
-const gradeNames = { 1: "一年级", 2: "二年级", 3: "三年级", 4: "四年级", 5: "五年级", 6: "六年级", 7: "华语动画" };
+const gradeNames = { 1: "一年级", 2: "二年级", 3: "三年级", 4: "四年级", 5: "五年级", 6: "六年级", 7: "华语动画", 8: "华语歌曲" };
 let currentGrade = null;
 let currentGradeBooks = [];
 let currentBookIdx = 0;
@@ -699,7 +706,7 @@ function initFirebase() {
 initFirebase();
 
 // Set grade counts
-[1,2,3,4,5,6,7].forEach(g => {
+[1,2,3,4,5,6,7,8].forEach(g => {
   document.getElementById('count-' + g).textContent = books.filter(b => b.grade === g).length + ' 本';
 });
 
@@ -1107,7 +1114,7 @@ async function loadRecords() {
     filteredStudents.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 
     // Group books by grade for display
-    const gradeOrder = [1,2,3,4,5,6,7];
+    const gradeOrder = [1,2,3,4,5,6,7,8];
 
     listEl.innerHTML = filteredStudents.map(s => {
       const totalRead = gradeBooks.filter(b => s.books[b.n]).length;
