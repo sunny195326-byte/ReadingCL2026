@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>学生阅读报告生成器</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: 'Noto Sans SC', sans-serif; background: #F5F0EB; min-height: 100vh; padding: 2rem; }
+.container { max-width: 900px; margin: 0 auto; }
+h1 { color: #C0433D; text-align: center; margin-bottom: 0.5rem; font-size: 1.5rem; }
+.subtitle { text-align: center; color: #7A6D5E; margin-bottom: 2rem; font-size: 0.9rem; }
+.status { text-align: center; padding: 1rem; margin: 1rem 0; border-radius: 10px; background: white; }
+.status.loading { color: #7A6D5E; }
+.status.error { color: #C0433D; background: #fde8e8; }
+.status.success { color: #2d7d46; background: #e8f5e9; }
+button { background: #C0433D; color: white; border: none; padding: 0.8rem 2rem; border-radius: 8px; cursor: pointer; font-size: 1rem; font-weight: 600; }
+button:hover { background: #a33530; }
+button:disabled { background: #ccc; cursor: not-allowed; }
+.btn-row { text-align: center; margin: 1.5rem 0; }
+.date-filter { background: white; border-radius: 10px; padding: 1rem 1.5rem; margin: 1rem auto; max-width: 600px; display: flex; align-items: center; gap: 0.8rem; justify-content: center; flex-wrap: wrap; }
+.date-filter label { font-size: 0.85rem; color: #7A6D5E; font-weight: 600; }
+.date-filter input[type="date"] { padding: 0.4rem 0.6rem; border: 1px solid #ddd; border-radius: 6px; font-size: 0.85rem; color: #333; }
+.date-filter .hint { font-size: 0.75rem; color: #aaa; width: 100%; text-align: center; margin-top: 0.3rem; }
+.date-filter select { padding: 0.4rem 0.6rem; border: 1px solid #ddd; border-radius: 6px; font-size: 0.85rem; color: #333; background: white; }
+table { width: 100%; border-collapse: collapse; background: white; border-radius: 10px; overflow: hidden; margin-top: 1rem; font-size: 0.85rem; }
+th { background: #C0433D; color: white; padding: 0.6rem 0.5rem; text-align: left; }
+td { padding: 0.5rem; border-bottom: 1px solid #eee; }
+tr:hover td { background: #f9f5f0; }
+.pct-cell { font-weight: 700; }
+.reward-gold { color: #d4a017; }
+.reward-silver { color: #888; }
+.reward-bronze { color: #b87333; }
+.summary { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; margin: 1rem 0; }
+.summary-card { background: white; border-radius: 10px; padding: 1rem 1.5rem; text-align: center; min-width: 120px; }
+.summary-card .num { font-size: 1.5rem; font-weight: 700; color: #C0433D; }
+.summary-card .label { font-size: 0.75rem; color: #7A6D5E; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>学生阅读报告生成器</h1>
+  <p class="subtitle">从 Firebase 读取数据，生成带总百分比和奖励等级的报告</p>
+
+  <div class="date-filter">
+    <label>学期快捷选择：</label>
+    <select id="semester-select" onchange="applySemester()">
+      <option value="">自定义日期</option>
+    </select>
+    <label>从</label>
+    <input type="date" id="date-from">
+    <label>到</label>
+    <input type="date" id="date-to">
+    <div class="hint">只统计此时间范围内的观看记录（基于 lastViewed 字段）。留空则统计全部记录。</div>
+  </div>
+
+  <div class="btn-row">
+    <button id="btn-load" onclick="loadReport()">加载数据并生成报告</button>
+    <button id="btn-download" onclick="downloadCSV()" disabled style="margin-left:1rem; background:#2d7d46;">下载 CSV</button>
+  </div>
+
+  <div id="status" class="status loading">选择学期或日期范围，然后点击加载...</div>
+  <div id="summary" class="summary" style="display:none;"></div>
+  <div id="table-wrap"></div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<script>
+// PLACEHOLDER_BOOKS_START
+</script>
+<script>
+// Firebase config
+const firebaseConfig = {
+  apiKey: "AIzaSyBByFtnNE3xgM4abM8j--YBMSDd3VTBxB4",
+  authDomain: "chinesestory.firebaseapp.com",
+  projectId: "chinesestory",
+  storageBucket: "chinesestory.firebasestorage.app",
+  messagingSenderId: "710813388356",
+  appId: "1:710813388356:web:683a8589016528346db611"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+
+// Book data (copied from main app)
+const gradeNames = { 1:"一年级", 2:"二年级", 3:"三年级", 4:"四年级", 5:"五年级", 6:"六年级", 7:"华语动画" };
+
+let reportData = [];
+let selectedFrom = '';
+let selectedTo = '';
+
+// Generate semester options: Jan-Jun = Sem 1, Jul-Dec = Sem 2
+function initSemesters() {
+  const sel = document.getElementById('semester-select');
+  const now = new Date();
+  const year = now.getFullYear();
+  // Generate semesters for current year and previous 2 years
+  for (let y = year; y >= year - 2; y--) {
+    // Semester 2: Jul 1 – Dec 31
+    sel.innerHTML += `<option value="${y}-07-01|${y}-12-31">${y} 下半年 (Jul–Dec)</option>`;
+    // Semester 1: Jan 1 – Jun 30
+    sel.innerHTML += `<option value="${y}-01-01|${y}-06-30">${y} 上半年 (Jan–Jun)</option>`;
+  }
+}
+initSemesters();
+
+function applySemester() {
+  const val = document.getElementById('semester-select').value;
+  if (val) {
+    const [from, to] = val.split('|');
+    document.getElementById('date-from').value = from;
+    document.getElementById('date-to').value = to;
+  }
+}
+
+function getDateFilters() {
+  const from = document.getElementById('date-from').value;
+  const to = document.getElementById('date-to').value;
+  return {
+    from: from ? new Date(from + 'T00:00:00') : null,
+    to: to ? new Date(to + 'T23:59:59') : null
+  };
+}
+
+async function loadReport() {
+  const statusEl = document.getElementById('status');
+  const btn = document.getElementById('btn-load');
+  btn.disabled = true;
+  statusEl.className = 'status loading';
+  statusEl.textContent = '正在加载 Firebase 数据...';
+
+  try {
+    const [studentsSnap, recordsSnap] = await Promise.all([
+      db.collection('students').get(),
+      db.collection('records').get()
+    ]);
+
+    statusEl.textContent = `已加载 ${studentsSnap.size} 名学生, ${recordsSnap.size} 条记录，正在计算...`;
+
+    // Build students map
+    const students = {};
+    studentsSnap.forEach(doc => {
+      const d = doc.data();
+      students[doc.id] = { id: doc.id, name: d.name, className: d.className || '', grade: d.grade || 0, books: {} };
+    });
+
+    // Date filters
+    const { from: dateFrom, to: dateTo } = getDateFilters();
+    let filteredCount = 0;
+    let skippedCount = 0;
+    let noDateCount = 0;
+    let sampleDates = [];
+
+    // Diagnose what date fields exist across ALL records
+    let hasLastViewed = 0, hasTimestamp = 0, hasNoDate = 0;
+    let minDate = null, maxDate = null;
+    recordsSnap.forEach(doc => {
+      const d = doc.data();
+      let dt = null;
+      if (d.lastViewed) { hasLastViewed++; dt = new Date(d.lastViewed); }
+      else if (d.timestamp && d.timestamp.toDate) { hasTimestamp++; dt = d.timestamp.toDate(); }
+      else if (d.timestamp && typeof d.timestamp === 'string') { hasTimestamp++; dt = new Date(d.timestamp); }
+      else { hasNoDate++; }
+      if (dt && !isNaN(dt.getTime())) {
+        if (!minDate || dt < minDate) minDate = dt;
+        if (!maxDate || dt > maxDate) maxDate = dt;
+      }
+    });
+    const diagMsg = `记录日期诊断: ${hasLastViewed} 条有lastViewed, ${hasTimestamp} 条有timestamp, ${hasNoDate} 条无日期。`
+      + (minDate ? ` 日期范围: ${minDate.toISOString().slice(0,10)} ~ ${maxDate.toISOString().slice(0,10)}` : ' 无任何日期数据');
+    console.log(diagMsg);
+    statusEl.textContent = diagMsg;
+
+    // Build records (with date filter)
+    recordsSnap.forEach(doc => {
+      const d = doc.data();
+      if (!students[d.userId]) return;
+
+      // Date filter
+      if (dateFrom || dateTo) {
+        let recordDate = null;
+        // Priority: lastViewed > timestamp
+        if (d.lastViewed) {
+          recordDate = new Date(d.lastViewed);
+        } else if (d.timestamp && d.timestamp.toDate) {
+          recordDate = d.timestamp.toDate();
+        } else if (d.timestamp && typeof d.timestamp === 'string') {
+          recordDate = new Date(d.timestamp);
+        }
+
+        if (!recordDate || isNaN(recordDate.getTime())) {
+          // No valid date — include anyway (legacy record)
+          noDateCount++;
+        } else {
+          if (dateFrom && recordDate < dateFrom) { skippedCount++; return; }
+          if (dateTo && recordDate > dateTo) { skippedCount++; return; }
+        }
+      }
+
+      filteredCount++;
+      students[d.userId].books[d.bookId] = {
+        progress: d.watchProgress || 0,
+        watchTime: d.watchTime || 0,
+        title: d.bookTitle || ''
+      };
+    });
+
+    const dateInfo = (dateFrom || dateTo)
+      ? ` (范围内: ${filteredCount} 条, 排除: ${skippedCount} 条${noDateCount ? ', 无日期(已包含): ' + noDateCount + ' 条' : ''})`
+      : '';
+
+    // Calculate total percentage for each student
+    reportData = Object.values(students).map(s => {
+      let totalPct = 0;
+      let booksStarted = 0;
+      let booksCompleted = 0;
+
+      // Check all books from the book list
+      // We need book n values — extract from the page's book data
+      // Since we don't have the books array here, we use the records directly
+      // But to be thorough, let's count from records
+      Object.values(s.books).forEach(rec => {
+        const pct = Math.min(100, rec.progress || 0);
+        totalPct += pct;
+        if (pct > 0) booksStarted++;
+        if (pct >= 90) booksCompleted++;
+      });
+
+      // Determine reward tier
+      let reward = '';
+      if (totalPct >= 1000) reward = '🏆 钻石';
+      else if (totalPct >= 500) reward = '🥇 金奖';
+      else if (totalPct >= 300) reward = '🥈 银奖';
+      else if (totalPct >= 200) reward = '🥉 铜奖';
+      else if (totalPct >= 100) reward = '⭐ 入门';
+
+      return {
+        name: s.name,
+        className: s.className,
+        grade: s.grade,
+        gradeName: gradeNames[s.grade] || '-',
+        booksStarted,
+        booksCompleted,
+        totalPct: Math.round(totalPct),
+        reward
+      };
+    });
+
+    // Sort by totalPct descending
+    reportData.sort((a, b) => b.totalPct - a.totalPct);
+
+    // Summary stats
+    const totalStudents = reportData.length;
+    const activeStudents = reportData.filter(s => s.totalPct > 0).length;
+    const avgPct = totalStudents > 0 ? Math.round(reportData.reduce((sum, s) => sum + s.totalPct, 0) / totalStudents) : 0;
+    const over200 = reportData.filter(s => s.totalPct >= 200).length;
+
+    const summaryEl = document.getElementById('summary');
+    summaryEl.style.display = 'flex';
+    summaryEl.innerHTML = `
+      <div class="summary-card"><div class="num">${totalStudents}</div><div class="label">总学生数</div></div>
+      <div class="summary-card"><div class="num">${activeStudents}</div><div class="label">有观看记录</div></div>
+      <div class="summary-card"><div class="num">${avgPct}%</div><div class="label">平均总百分比</div></div>
+      <div class="summary-card"><div class="num">${over200}</div><div class="label">≥200% (获奖)</div></div>
+    `;
+
+    // Render table
+    const wrap = document.getElementById('table-wrap');
+    wrap.innerHTML = `<table>
+      <thead><tr>
+        <th>#</th><th>姓名</th><th>班级</th><th>年级</th>
+        <th>已开始</th><th>已完成</th><th>总百分比</th><th>奖励等级</th>
+      </tr></thead>
+      <tbody>${reportData.map((s, i) => {
+        const rewardClass = s.totalPct >= 500 ? 'reward-gold' : s.totalPct >= 300 ? 'reward-silver' : s.totalPct >= 200 ? 'reward-bronze' : '';
+        return `<tr>
+          <td>${i + 1}</td>
+          <td>${s.name}</td>
+          <td>${s.className || '-'}</td>
+          <td>${s.gradeName}</td>
+          <td>${s.booksStarted} 本</td>
+          <td>${s.booksCompleted} 本</td>
+          <td class="pct-cell">${s.totalPct}%</td>
+          <td class="${rewardClass}">${s.reward || '-'}</td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table>`;
+
+    statusEl.className = 'status success';
+    const rangeText = (dateFrom || dateTo) ? ` | 时间范围: ${dateFrom ? document.getElementById('date-from').value : '不限'} ~ ${dateTo ? document.getElementById('date-to').value : '不限'}` : ' | 全部记录（未设日期过滤）';
+    statusEl.textContent = `报告生成成功！共 ${totalStudents} 名学生${dateInfo}${rangeText}`;
+    document.getElementById('btn-download').disabled = false;
+
+  } catch(e) {
+    statusEl.className = 'status error';
+    statusEl.textContent = '加载失败: ' + e.message;
+    console.error(e);
+  }
+  btn.disabled = false;
+}
+
+function downloadCSV() {
+  if (!reportData.length) return;
+
+  // BOM for Excel UTF-8
+  const BOM = '\uFEFF';
+  const headers = ['排名', '姓名', '班级', '年级', '已开始(本)', '已完成(本)', '总百分比(%)', '奖励等级'];
+  const rows = reportData.map((s, i) => [
+    i + 1, s.name, s.className || '-', s.gradeName,
+    s.booksStarted, s.booksCompleted, s.totalPct, s.reward || '-'
+  ]);
+
+  const csv = BOM + [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const date = new Date().toISOString().slice(0, 10);
+  const fromVal = document.getElementById('date-from').value;
+  const toVal = document.getElementById('date-to').value;
+  const rangeSuffix = (fromVal || toVal) ? `_${fromVal || 'start'}_${toVal || 'end'}` : '';
+  a.download = `阅读报告_${date}${rangeSuffix}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+</script>
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/v31edd6df95cf4e85bb4c19e7a9bdbcba1788362987495" integrity="sha512-iIg7k2xntmwu6/uSb5tpc/hySgZc4eoL31yB29W6tJFo2akwjPWcEqnCEdJvGexCL0KEQwVYv5BlowfhVz26hg==" data-cf-beacon='{"version":"2024.11.0","token":"75124c326cb447fe934cde04713ae013","r":1,"spa":2}' crossorigin="anonymous"></script>
+</body>
+</html>

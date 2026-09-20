@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>班级阅读报告</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: 'Noto Sans SC', sans-serif; background: #F5F0EB; min-height: 100vh; padding: 2rem; }
+.container { max-width: 960px; margin: 0 auto; }
+h1 { color: #C0433D; text-align: center; margin-bottom: 0.3rem; font-size: 1.5rem; }
+.subtitle { text-align: center; color: #7A6D5E; margin-bottom: 1.5rem; font-size: 0.85rem; }
+.btn-row { text-align: center; margin: 1.2rem 0; display: flex; gap: 0.8rem; justify-content: center; flex-wrap: wrap; }
+button { background: #C0433D; color: white; border: none; padding: 0.7rem 1.8rem; border-radius: 8px; cursor: pointer; font-size: 0.95rem; font-weight: 600; }
+button:hover { background: #a33530; }
+button:disabled { background: #ccc; cursor: not-allowed; }
+.btn-green { background: #2d7d46; }
+.btn-green:hover { background: #236b38; }
+.status { text-align: center; padding: 0.8rem; margin: 1rem 0; border-radius: 10px; background: white; font-size: 0.9rem; }
+.status.loading { color: #7A6D5E; }
+.status.error { color: #C0433D; background: #fde8e8; }
+.status.success { color: #2d7d46; background: #e8f5e9; }
+
+.class-block { background: white; border-radius: 12px; margin-bottom: 1.5rem; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+.class-header { background: #C0433D; color: white; padding: 0.7rem 1.2rem; display: flex; justify-content: space-between; align-items: center; }
+.class-header h2 { font-size: 1.1rem; }
+.class-header .class-stats { font-size: 0.8rem; opacity: 0.9; }
+table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+th { background: #f9f5f0; padding: 0.5rem; text-align: left; color: #7A6D5E; font-weight: 600; border-bottom: 2px solid #e8e0d5; }
+td { padding: 0.45rem 0.5rem; border-bottom: 1px solid #f0ebe5; }
+tr:hover td { background: #faf7f3; }
+.rank-cell { text-align: center; color: #999; font-size: 0.8rem; }
+.pct-cell { font-weight: 700; font-size: 0.9rem; }
+.pct-high { color: #C0433D; }
+.pct-mid { color: #d4a017; }
+.pct-low { color: #7A6D5E; }
+.reward-diamond { color: #C0433D; font-weight: 700; }
+.reward-gold { color: #d4a017; font-weight: 700; }
+.reward-silver { color: #888; font-weight: 600; }
+.reward-bronze { color: #b87333; font-weight: 600; }
+.reward-star { color: #5a8f3d; }
+.bar-wrap { width: 80px; height: 10px; background: #eee; border-radius: 5px; display: inline-block; vertical-align: middle; margin-left: 6px; }
+.bar-fill { height: 100%; border-radius: 5px; background: linear-gradient(90deg, #e8b84b, #C0433D); }
+.empty-class { padding: 1rem; text-align: center; color: #bbb; font-size: 0.85rem; }
+
+.summary { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; margin: 1rem 0; }
+.summary-card { background: white; border-radius: 10px; padding: 0.8rem 1.2rem; text-align: center; min-width: 100px; }
+.summary-card .num { font-size: 1.3rem; font-weight: 700; color: #C0433D; }
+.summary-card .label { font-size: 0.7rem; color: #7A6D5E; }
+.date-filter { background: white; border-radius: 10px; padding: 1rem 1.5rem; margin: 1rem auto; max-width: 600px; display: flex; align-items: center; gap: 0.8rem; justify-content: center; flex-wrap: wrap; }
+.date-filter label { font-size: 0.85rem; color: #7A6D5E; font-weight: 600; }
+.date-filter input[type="date"] { padding: 0.4rem 0.6rem; border: 1px solid #ddd; border-radius: 6px; font-size: 0.85rem; color: #333; }
+.date-filter .hint { font-size: 0.75rem; color: #aaa; width: 100%; text-align: center; margin-top: 0.3rem; }
+.date-filter select { padding: 0.4rem 0.6rem; border: 1px solid #ddd; border-radius: 6px; font-size: 0.85rem; color: #333; background: white; }
+
+@media print {
+  body { padding: 0.5rem; background: white; }
+  button, .btn-row, .status { display: none !important; }
+  .class-block { break-inside: avoid; box-shadow: none; border: 1px solid #ddd; }
+}
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>班级阅读报告</h1>
+  <p class="subtitle">按班级分组 · 每班按阅读量从高到低排列 · 含奖励等级</p>
+
+  <div class="date-filter">
+    <label>学期快捷选择：</label>
+    <select id="semester-select" onchange="applySemester()">
+      <option value="">自定义日期</option>
+    </select>
+    <label>从</label>
+    <input type="date" id="date-from">
+    <label>到</label>
+    <input type="date" id="date-to">
+    <div class="hint">只统计此时间范围内的观看记录（基于 lastViewed 字段）。留空则统计全部记录。</div>
+  </div>
+
+  <div class="btn-row">
+    <button id="btn-load" onclick="loadReport()">加载数据并生成报告</button>
+    <button id="btn-csv" class="btn-green" onclick="downloadCSV()" disabled>下载 CSV</button>
+    <button id="btn-print" style="background:#555;" onclick="window.print()" disabled>打印报告</button>
+  </div>
+
+  <div id="status" class="status loading">选择学期或日期范围，然后点击加载...</div>
+  <div id="summary" class="summary" style="display:none;"></div>
+  <div id="report"></div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyBByFtnNE3xgM4abM8j--YBMSDd3VTBxB4",
+  authDomain: "chinesestory.firebaseapp.com",
+  projectId: "chinesestory",
+  storageBucket: "chinesestory.firebasestorage.app",
+  messagingSenderId: "710813388356",
+  appId: "1:710813388356:web:683a8589016528346db611"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+
+const gradeNames = { 1:"一年级", 2:"二年级", 3:"三年级", 4:"四年级", 5:"五年级", 6:"六年级" };
+
+// All 27 classes in order
+const classOrder = [
+  '1CL1','1CL2','1CL3','1CL4',
+  '2CL1','2CL2','2CL3','2CL4',
+  '3CL1','3CL2','3CL3','3CL4','3CL5','3CL6',
+  '4CL1','4CL2','4CL3','4CL4','4CL5',
+  '5CL1','5CL2','5CL3','5CL4','5CL5',
+  '6CL1','6CL2','6CL3','6CL4'
+];
+
+function classDisplayName(cls) {
+  // 1CL1 → P1-1, 3CL5 → P3-5
+  const m = cls.match(/^(\d)CL(\d)$/);
+  return m ? `P${m[1]}-${m[2]}` : cls;
+}
+
+function getReward(pct) {
+  if (pct >= 1000) return { text: '🏆 钻石', cls: 'reward-diamond', tier: 5 };
+  if (pct >= 500)  return { text: '🥇 金奖', cls: 'reward-gold', tier: 4 };
+  if (pct >= 300)  return { text: '🥈 银奖', cls: 'reward-silver', tier: 3 };
+  if (pct >= 200)  return { text: '🥉 铜奖', cls: 'reward-bronze', tier: 2 };
+  if (pct >= 100)  return { text: '⭐ 入门', cls: 'reward-star', tier: 1 };
+  return { text: '-', cls: '', tier: 0 };
+}
+
+let allClassData = {};
+
+// Generate semester options
+function initSemesters() {
+  const sel = document.getElementById('semester-select');
+  const now = new Date();
+  const year = now.getFullYear();
+  for (let y = year; y >= year - 2; y--) {
+    sel.innerHTML += `<option value="${y}-07-01|${y}-12-31">${y} 下半年 (Jul–Dec)</option>`;
+    sel.innerHTML += `<option value="${y}-01-01|${y}-06-30">${y} 上半年 (Jan–Jun)</option>`;
+  }
+}
+initSemesters();
+
+function applySemester() {
+  const val = document.getElementById('semester-select').value;
+  if (val) {
+    const [from, to] = val.split('|');
+    document.getElementById('date-from').value = from;
+    document.getElementById('date-to').value = to;
+  }
+}
+
+function getDateFilters() {
+  const from = document.getElementById('date-from').value;
+  const to = document.getElementById('date-to').value;
+  return {
+    from: from ? new Date(from + 'T00:00:00') : null,
+    to: to ? new Date(to + 'T23:59:59') : null
+  };
+}
+
+async function loadReport() {
+  const statusEl = document.getElementById('status');
+  const btn = document.getElementById('btn-load');
+  btn.disabled = true;
+  statusEl.className = 'status loading';
+  statusEl.textContent = '正在加载 Firebase 数据...';
+
+  try {
+    const [studentsSnap, recordsSnap] = await Promise.all([
+      db.collection('students').get(),
+      db.collection('records').get()
+    ]);
+
+    statusEl.textContent = `已加载 ${studentsSnap.size} 名学生, ${recordsSnap.size} 条记录，正在计算...`;
+
+    // Build students
+    const students = {};
+    studentsSnap.forEach(doc => {
+      const d = doc.data();
+      students[doc.id] = { id: doc.id, name: d.name, className: d.className || '', grade: d.grade || 0, books: {} };
+    });
+
+    // Date filters
+    const { from: dateFrom, to: dateTo } = getDateFilters();
+    let filteredCount = 0;
+    let skippedCount = 0;
+    let noDateCount = 0;
+
+    // Diagnose what date fields exist across ALL records
+    let hasLastViewed = 0, hasTimestamp = 0, hasNoDate = 0;
+    let minDate = null, maxDate = null;
+    recordsSnap.forEach(doc => {
+      const d = doc.data();
+      let dt = null;
+      if (d.lastViewed) { hasLastViewed++; dt = new Date(d.lastViewed); }
+      else if (d.timestamp && d.timestamp.toDate) { hasTimestamp++; dt = d.timestamp.toDate(); }
+      else if (d.timestamp && typeof d.timestamp === 'string') { hasTimestamp++; dt = new Date(d.timestamp); }
+      else { hasNoDate++; }
+      if (dt && !isNaN(dt.getTime())) {
+        if (!minDate || dt < minDate) minDate = dt;
+        if (!maxDate || dt > maxDate) maxDate = dt;
+      }
+    });
+    const diagMsg = `记录日期诊断: ${hasLastViewed} 条有lastViewed, ${hasTimestamp} 条有timestamp, ${hasNoDate} 条无日期。`
+      + (minDate ? ` 日期范围: ${minDate.toISOString().slice(0,10)} ~ ${maxDate.toISOString().slice(0,10)}` : ' 无任何日期数据');
+    console.log(diagMsg);
+    statusEl.textContent = diagMsg;
+
+    // Build records (with date filter)
+    recordsSnap.forEach(doc => {
+      const d = doc.data();
+      if (!students[d.userId]) return;
+
+      if (dateFrom || dateTo) {
+        let recordDate = null;
+        if (d.lastViewed) {
+          recordDate = new Date(d.lastViewed);
+        } else if (d.timestamp && d.timestamp.toDate) {
+          recordDate = d.timestamp.toDate();
+        } else if (d.timestamp && typeof d.timestamp === 'string') {
+          recordDate = new Date(d.timestamp);
+        }
+
+        if (!recordDate || isNaN(recordDate.getTime())) {
+          noDateCount++;
+        } else {
+          if (dateFrom && recordDate < dateFrom) { skippedCount++; return; }
+          if (dateTo && recordDate > dateTo) { skippedCount++; return; }
+        }
+      }
+
+      filteredCount++;
+      students[d.userId].books[d.bookId] = {
+        progress: d.watchProgress || 0,
+        title: d.bookTitle || ''
+      };
+    });
+
+    const dateInfo = (dateFrom || dateTo)
+      ? ` (范围内: ${filteredCount} 条, 排除: ${skippedCount} 条${noDateCount ? ', 无日期(已包含): ' + noDateCount + ' 条' : ''})`
+      : '';
+
+    // Calculate per student
+    const studentList = Object.values(students).map(s => {
+      let totalPct = 0;
+      let booksStarted = 0;
+      let booksCompleted = 0;
+      Object.values(s.books).forEach(rec => {
+        const pct = Math.min(100, rec.progress || 0);
+        totalPct += pct;
+        if (pct > 0) booksStarted++;
+        if (pct >= 90) booksCompleted++;
+      });
+      const reward = getReward(Math.round(totalPct));
+      return { ...s, totalPct: Math.round(totalPct), booksStarted, booksCompleted, reward };
+    });
+
+    // Group by class
+    allClassData = {};
+    classOrder.forEach(cls => { allClassData[cls] = []; });
+    // Also collect unassigned
+    allClassData['_other'] = [];
+
+    studentList.forEach(s => {
+      if (allClassData[s.className] !== undefined) {
+        allClassData[s.className].push(s);
+      } else {
+        allClassData['_other'].push(s);
+      }
+    });
+
+    // Sort each class: by totalPct desc (diamond → beginner)
+    Object.keys(allClassData).forEach(cls => {
+      allClassData[cls].sort((a, b) => b.totalPct - a.totalPct);
+    });
+
+    // Summary
+    const totalStudents = studentList.length;
+    const activeStudents = studentList.filter(s => s.totalPct > 0).length;
+    const rewardStudents = studentList.filter(s => s.totalPct >= 100).length;
+    const diamondStudents = studentList.filter(s => s.totalPct >= 1000).length;
+
+    const summaryEl = document.getElementById('summary');
+    summaryEl.style.display = 'flex';
+    summaryEl.innerHTML = `
+      <div class="summary-card"><div class="num">${totalStudents}</div><div class="label">总学生</div></div>
+      <div class="summary-card"><div class="num">${activeStudents}</div><div class="label">有记录</div></div>
+      <div class="summary-card"><div class="num">${rewardStudents}</div><div class="label">≥100% 获奖</div></div>
+      <div class="summary-card"><div class="num">${diamondStudents}</div><div class="label">🏆 钻石</div></div>
+    `;
+
+    // Render class blocks
+    const reportEl = document.getElementById('report');
+    let html = '';
+
+    classOrder.forEach(cls => {
+      const students = allClassData[cls];
+      const displayName = classDisplayName(cls);
+      const gradeName = gradeNames[parseInt(cls.charAt(0))] || '';
+      const classAvg = students.length > 0 ? Math.round(students.reduce((s, st) => s + st.totalPct, 0) / students.length) : 0;
+      const classReaders = students.filter(s => s.totalPct > 0).length;
+
+      html += `<div class="class-block">
+        <div class="class-header">
+          <h2>${displayName} (${gradeName})</h2>
+          <span class="class-stats">${students.length} 人 · ${classReaders} 人有记录 · 班级平均 ${classAvg}%</span>
+        </div>`;
+
+      if (students.length === 0) {
+        html += `<div class="empty-class">此班级无学生数据</div>`;
+      } else {
+        html += `<table>
+          <thead><tr>
+            <th style="width:30px">#</th>
+            <th>姓名</th>
+            <th>已完成</th>
+            <th>已开始</th>
+            <th>总百分比</th>
+            <th style="width:100px">奖励等级</th>
+          </tr></thead><tbody>`;
+
+        students.forEach((s, i) => {
+          const pctClass = s.totalPct >= 500 ? 'pct-high' : s.totalPct >= 200 ? 'pct-mid' : 'pct-low';
+          // Visual bar: max width at 1000%
+          const barW = Math.min(100, s.totalPct / 10);
+          html += `<tr>
+            <td class="rank-cell">${i + 1}</td>
+            <td>${s.name}</td>
+            <td>${s.booksCompleted} 本</td>
+            <td>${s.booksStarted} 本</td>
+            <td class="pct-cell ${pctClass}">${s.totalPct}%<span class="bar-wrap"><span class="bar-fill" style="width:${barW}%"></span></span></td>
+            <td class="${s.reward.cls}">${s.reward.text}</td>
+          </tr>`;
+        });
+
+        html += `</tbody></table>`;
+      }
+      html += `</div>`;
+    });
+
+    // Unassigned students
+    if (allClassData['_other'].length > 0) {
+      const others = allClassData['_other'];
+      html += `<div class="class-block">
+        <div class="class-header" style="background:#888;">
+          <h2>未分班</h2>
+          <span class="class-stats">${others.length} 人</span>
+        </div>
+        <table><thead><tr>
+          <th style="width:30px">#</th><th>姓名</th><th>班级</th><th>已完成</th><th>已开始</th><th>总百分比</th><th>奖励</th>
+        </tr></thead><tbody>`;
+      others.forEach((s, i) => {
+        html += `<tr>
+          <td class="rank-cell">${i + 1}</td>
+          <td>${s.name}</td>
+          <td>${s.className || '-'}</td>
+          <td>${s.booksCompleted} 本</td>
+          <td>${s.booksStarted} 本</td>
+          <td class="pct-cell">${s.totalPct}%</td>
+          <td class="${s.reward.cls}">${s.reward.text}</td>
+        </tr>`;
+      });
+      html += `</tbody></table></div>`;
+    }
+
+    reportEl.innerHTML = html;
+    statusEl.className = 'status success';
+    const rangeText = (dateFrom || dateTo) ? ` | 时间: ${dateFrom ? document.getElementById('date-from').value : '不限'} ~ ${dateTo ? document.getElementById('date-to').value : '不限'}` : ' | 全部记录';
+    statusEl.textContent = `报告生成成功！共 ${classOrder.length} 个班级, ${totalStudents} 名学生${dateInfo}${rangeText}`;
+    document.getElementById('btn-csv').disabled = false;
+    document.getElementById('btn-print').disabled = false;
+
+  } catch(e) {
+    statusEl.className = 'status error';
+    statusEl.textContent = '加载失败: ' + e.message;
+    console.error(e);
+  }
+  btn.disabled = false;
+}
+
+function downloadCSV() {
+  const BOM = '\uFEFF';
+  const headers = ['班级', '班级(代码)', '排名', '姓名', '已完成(本)', '已开始(本)', '总百分比(%)', '奖励等级'];
+  const rows = [];
+
+  classOrder.forEach(cls => {
+    const students = allClassData[cls] || [];
+    students.forEach((s, i) => {
+      rows.push([
+        classDisplayName(cls), cls, i + 1, s.name,
+        s.booksCompleted, s.booksStarted, s.totalPct, s.reward.text
+      ]);
+    });
+  });
+
+  // Add unassigned
+  (allClassData['_other'] || []).forEach((s, i) => {
+    rows.push(['未分班', s.className || '-', i + 1, s.name, s.booksCompleted, s.booksStarted, s.totalPct, s.reward.text]);
+  });
+
+  const csv = BOM + [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const date = new Date().toISOString().slice(0, 10);
+  const fromVal = document.getElementById('date-from').value;
+  const toVal = document.getElementById('date-to').value;
+  const rangeSuffix = (fromVal || toVal) ? `_${fromVal || 'start'}_${toVal || 'end'}` : '';
+  a.download = `班级阅读报告_${date}${rangeSuffix}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+</script>
+<script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/v31edd6df95cf4e85bb4c19e7a9bdbcba1788362987495" integrity="sha512-iIg7k2xntmwu6/uSb5tpc/hySgZc4eoL31yB29W6tJFo2akwjPWcEqnCEdJvGexCL0KEQwVYv5BlowfhVz26hg==" data-cf-beacon='{"version":"2024.11.0","token":"75124c326cb447fe934cde04713ae013","r":1,"spa":2}' crossorigin="anonymous"></script>
+</body>
+</html>
